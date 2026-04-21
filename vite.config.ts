@@ -23,21 +23,16 @@ export default defineConfig({
     sourcemap: false,
     rollupOptions: {
       output: {
-        // Split heavy vendor groups into long-cacheable chunks so the main
-        // bundle stays lean and repeat visits load almost instantly.
-        manualChunks(id) {
-          if (!id.includes('node_modules')) return;
-          if (id.includes('@supabase')) return 'vendor-supabase';
-          if (id.includes('framer-motion')) return 'vendor-motion';
-          if (id.includes('@radix-ui')) return 'vendor-radix';
-          if (id.includes('@tanstack/react-query')) return 'vendor-query';
-          if (id.includes('dexie')) return 'vendor-dexie';
-          if (id.includes('react-router')) return 'vendor-router';
-          if (id.includes('/react/') || id.includes('/react-dom/')) return 'vendor-react';
-          if (id.includes('lucide-react')) return 'vendor-icons';
-          if (id.includes('qrcode')) return 'vendor-qrcode';
-          if (id.includes('zod')) return 'vendor-zod';
-          return 'vendor';
+        // Split only clearly-isolated libraries into their own long-cacheable
+        // chunks. Splitting react / react-dom / react-router / @tanstack out
+        // created circular imports with the generic vendor chunk which caused
+        // "Cannot access X before initialization" at load. These stay
+        // together in the default vendor chunk.
+        manualChunks: {
+          'vendor-supabase': ['@supabase/supabase-js'],
+          'vendor-motion': ['framer-motion'],
+          'vendor-dexie': ['dexie', 'dexie-react-hooks'],
+          'vendor-qrcode': ['qrcode'],
         },
       },
     },
