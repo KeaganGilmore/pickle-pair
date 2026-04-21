@@ -48,8 +48,10 @@ export function PlayerView() {
               match={m}
               players={playersById}
               tournament={tournament}
+              allMatches={matches}
               basePath={`/t/${token}`}
               compact
+              canEdit={false}
             />
           ))}
         </div>
@@ -65,8 +67,10 @@ export function PlayerView() {
               match={m}
               players={playersById}
               tournament={tournament}
+              allMatches={matches}
               basePath={`/t/${token}`}
               compact
+              canEdit={false}
             />
           ))}
         </div>

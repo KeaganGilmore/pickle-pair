@@ -1,10 +1,20 @@
 import { useParams } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { Sparkles, RefreshCw } from 'lucide-react';
+import { Sparkles, RefreshCw, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useTournamentData } from '@/hooks/useTournament';
 import { MatchCard } from '@/components/MatchCard';
 import { Button } from '@/components/ui/Button';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+  DialogClose,
+} from '@/components/ui/Dialog';
 import { groupBy } from '@/lib/utils';
 import { generateNextRound, validateForFormat } from '@/lib/pairing';
 import { upsertMatches, upsertTournament, deleteMatches, audit } from '@/lib/repo';
@@ -34,6 +44,26 @@ export function TournamentMatches() {
     await audit(tournament.id, 'round_generated', undefined, { round: result.nextRound });
     result.warnings.forEach((w) => toast.warning(w));
     toast.success(`Round ${result.nextRound} generated.`);
+  };
+
+  const deleteRound = async (round: number) => {
+    const toDelete = matches.filter((m) => m.round === round).map((m) => m.id);
+    if (toDelete.length === 0) return;
+    await deleteMatches(toDelete, tournament.id);
+    const highestRemaining = matches
+      .filter((m) => !toDelete.includes(m.id))
+      .reduce((max, m) => Math.max(max, m.round), 0);
+    const nextCurrent = Math.min(tournament.current_round, highestRemaining);
+    const status =
+      highestRemaining === 0 && tournament.status === 'live' ? 'setup' : tournament.status;
+    await upsertTournament({
+      ...tournament,
+      current_round: nextCurrent,
+      status,
+      updated_at: nowIso(),
+    });
+    await audit(tournament.id, 'round_repaired', undefined, { round, deleted: toDelete.length });
+    toast(`Round ${round} removed (${toDelete.length} match${toDelete.length === 1 ? '' : 'es'}).`);
   };
 
   const repairRound = async (round: number) => {
@@ -75,10 +105,40 @@ export function TournamentMatches() {
           <section key={round}>
             <header className="mb-2 flex items-center justify-between">
               <h3 className="font-serif text-2xl">Round {round}</h3>
-              {isEditor && round === tournament.current_round && tournament.format !== 'single_elim' && (
-                <Button variant="ghost" size="sm" onClick={() => repairRound(round)}>
-                  <RefreshCw className="h-3.5 w-3.5" /> Re-pair
-                </Button>
+              {isEditor && (
+                <div className="flex items-center gap-1">
+                  {round === tournament.current_round && tournament.format !== 'single_elim' && (
+                    <Button variant="ghost" size="sm" onClick={() => repairRound(round)}>
+                      <RefreshCw className="h-3.5 w-3.5" /> Re-pair
+                    </Button>
+                  )}
+                  <Dialog>
+                    <DialogTrigger asChild>
+                      <Button variant="ghost" size="sm" className="text-muted-foreground hover:text-destructive">
+                        <Trash2 className="h-3.5 w-3.5" /> Delete
+                      </Button>
+                    </DialogTrigger>
+                    <DialogContent>
+                      <DialogHeader>
+                        <DialogTitle>Delete round {round}?</DialogTitle>
+                        <DialogDescription>
+                          Removes every match in this round — including completed scores. Standings
+                          will recalculate. Use this if you generated a round by accident.
+                        </DialogDescription>
+                      </DialogHeader>
+                      <DialogFooter>
+                        <DialogClose asChild>
+                          <Button variant="ghost">Cancel</Button>
+                        </DialogClose>
+                        <DialogClose asChild>
+                          <Button variant="destructive" onClick={() => deleteRound(round)}>
+                            Delete round
+                          </Button>
+                        </DialogClose>
+                      </DialogFooter>
+                    </DialogContent>
+                  </Dialog>
+                </div>
               )}
             </header>
             <motion.div
@@ -105,7 +165,9 @@ export function TournamentMatches() {
                       match={m}
                       players={playersById}
                       tournament={tournament}
+                      allMatches={matches}
                       basePath={`/t/${token}`}
+                      canEdit={isEditor}
                     />
                   </motion.div>
                 ))}

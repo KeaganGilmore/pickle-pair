@@ -130,7 +130,9 @@ export function TournamentOverview() {
                   match={m}
                   players={playersById}
                   tournament={tournament}
+                  allMatches={matches}
                   basePath={`/t/${token}`}
+                  canEdit={isEditor}
                 />
               ))}
             </div>

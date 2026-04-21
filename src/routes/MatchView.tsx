@@ -1,6 +1,6 @@
 import { useNavigate, useParams, Link } from 'react-router-dom';
-import { useEffect, useState } from 'react';
-import { ArrowLeft, Check, CircleSlash, RefreshCw, AlertTriangle, Clock } from 'lucide-react';
+import { useState } from 'react';
+import { ArrowLeft, Check, CircleSlash, RefreshCw, AlertTriangle, Clock, Pencil } from 'lucide-react';
 import { toast } from 'sonner';
 import { AnimatePresence, motion } from 'framer-motion';
 import { useTournamentData } from '@/hooks/useTournament';
@@ -13,6 +13,7 @@ import { teamDisplayName } from '@/lib/standings';
 import { isMatchWinning } from '@/lib/scoring';
 import { advanceWinner } from '@/lib/pairing';
 import { upsertMatch, upsertMatches, audit } from '@/lib/repo';
+import { QuickScoreDialog } from '@/components/QuickScoreDialog';
 import type { Match } from '@/lib/types';
 import { formatDuration, nowIso, cn, haptic } from '@/lib/utils';
 import {
@@ -36,13 +37,8 @@ export function MatchView() {
   const [confettiKey, setConfettiKey] = useState(0);
   const timer = useMatchTimer(match?.started_at, match?.status === 'in_progress');
 
-  useEffect(() => {
-    if (!match) return;
-    if (match.status === 'scheduled' && isEditor && tournament?.status !== 'paused') {
-      // Auto-start on first visit
-      void upsertMatch({ ...match, status: 'in_progress', started_at: nowIso(), updated_at: nowIso() });
-    }
-  }, [match?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  // No auto-start on visit — organizers often open a match just to check it.
+  // Scoring +/- will flip status to in_progress when the first point is recorded.
 
   if (!tournament || !match) {
     return (
@@ -94,6 +90,16 @@ export function MatchView() {
   const reset = async () => {
     await upsertMatch({ ...match, score_a: 0, score_b: 0, status: 'in_progress', updated_at: nowIso() });
     toast('Scores reset.');
+  };
+
+  const reopen = async () => {
+    await upsertMatch({
+      ...match,
+      status: 'in_progress',
+      completed_at: null,
+      updated_at: nowIso(),
+    });
+    toast('Match reopened for editing.');
   };
 
   const voidMatch = async () => {
@@ -204,16 +210,49 @@ export function MatchView() {
               </>
             )}
           </div>
-          <div>
+          <div className="flex items-center gap-2">
+            {isEditor && match.status !== 'completed' && (
+              <QuickScoreDialog
+                match={match}
+                players={playersById}
+                tournament={tournament}
+                allMatches={matches}
+                trigger={
+                  <Button variant="subtle" size="sm">
+                    <Pencil className="h-3.5 w-3.5" /> Quick entry
+                  </Button>
+                }
+              />
+            )}
             {isEditor && winnerSide && match.status !== 'completed' && (
               <Button variant="accent" size="lg" onClick={confirmWin}>
                 <Check className="h-4 w-4" /> Lock as final
               </Button>
             )}
             {match.status === 'completed' && (
-              <Badge variant="success">
-                <Check className="h-3 w-3" /> Final
-              </Badge>
+              <>
+                <Badge variant="success">
+                  <Check className="h-3 w-3" /> Final
+                </Badge>
+                {isEditor && (
+                  <>
+                    <QuickScoreDialog
+                      match={match}
+                      players={playersById}
+                      tournament={tournament}
+                      allMatches={matches}
+                      trigger={
+                        <Button variant="subtle" size="sm">
+                          <Pencil className="h-3.5 w-3.5" /> Edit result
+                        </Button>
+                      }
+                    />
+                    <Button variant="ghost" size="sm" onClick={reopen}>
+                      <RefreshCw className="h-3.5 w-3.5" /> Reopen
+                    </Button>
+                  </>
+                )}
+              </>
             )}
           </div>
         </div>

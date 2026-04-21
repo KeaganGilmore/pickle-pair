@@ -4,19 +4,24 @@ import type { Match, Player, Tournament } from '@/lib/types';
 import { teamDisplayName } from '@/lib/standings';
 import { Badge } from './ui/Badge';
 import { cn } from '@/lib/utils';
+import { QuickScoreDialog } from './QuickScoreDialog';
 
 export function MatchCard({
   match,
   players,
   tournament,
+  allMatches,
   basePath,
   compact = false,
+  canEdit = true,
 }: {
   match: Match;
   players: Map<string, Player>;
   tournament: Tournament;
+  allMatches: Match[];
   basePath: string;
   compact?: boolean;
+  canEdit?: boolean;
 }) {
   const aName = teamDisplayName(match.team_a, players);
   const bName = teamDisplayName(match.team_b, players);
@@ -40,7 +45,17 @@ export function MatchCard({
           )}
           <span>Round {match.round}</span>
         </div>
-        <MatchBadge status={match.status} />
+        <div className="flex items-center gap-1">
+          <MatchBadge status={match.status} />
+          {canEdit && match.status !== 'bye' && match.status !== 'void' && (
+            <QuickScoreDialog
+              match={match}
+              players={players}
+              tournament={tournament}
+              allMatches={allMatches}
+            />
+          )}
+        </div>
       </header>
 
       <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-3">
@@ -75,7 +90,7 @@ export function MatchCard({
         </p>
       )}
 
-      {match.status !== 'completed' && (
+      {match.status !== 'completed' && match.status !== 'bye' && (
         <div className="mt-3 border-t border-border/60 pt-3 text-xs text-muted-foreground flex items-center justify-end gap-1">
           {tournament.status === 'paused' ? (
             <>
@@ -83,10 +98,10 @@ export function MatchCard({
             </>
           ) : match.status === 'in_progress' ? (
             <>
-              <Play className="h-3.5 w-3.5 text-emerald-500" /> Tap to score
+              <Play className="h-3.5 w-3.5 text-emerald-500" /> Tap to live-score · pencil for quick entry
             </>
           ) : (
-            <>Tap to start</>
+            <>Tap to live-score · pencil for quick entry</>
           )}
         </div>
       )}
