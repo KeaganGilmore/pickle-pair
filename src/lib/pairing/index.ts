@@ -1,6 +1,6 @@
 import type { Match, Player, Tournament } from '../types';
-import type { PairingContext, PairingResult, MatchSeed } from './core';
-import { makeMatches, trimToCourts } from './core';
+import type { PairingContext, PairingResult } from './core';
+import { makeMatches, selectPlayingSubset } from './core';
 import {
   generateRoundRobinRound,
   generateAmericanoRound,
@@ -75,9 +75,69 @@ export function generateNextRound(
 ): { matches: Match[]; warnings: string[]; nextRound: number; sitOut: string[] } {
   const active = activePlayers(players);
   const round = (tournament.current_round ?? 0) + 1;
-  const ctx: PairingContext = { tournament, players: active, existingMatches, round };
-  let result: PairingResult;
 
+  // Single-elim builds its whole bracket once; no round sizing applies.
+  if (tournament.format === 'single_elim') {
+    if (round === 1) {
+      const built = buildSingleElimBracket({
+        tournament,
+        players: active,
+        existingMatches,
+        round,
+      });
+      return {
+        matches: built.matches,
+        warnings: built.warnings,
+        nextRound: 1,
+        sitOut: [],
+      };
+    }
+    return {
+      matches: [],
+      warnings: ['Single elim bracket is fixed at start.'],
+      nextRound: round,
+      sitOut: [],
+    };
+  }
+
+  // King of the Court respects the court count by design.
+  if (tournament.format === 'king_of_court') {
+    const result = generateKingOfCourtRound({
+      tournament,
+      players: active,
+      existingMatches,
+      round,
+    });
+    const played = makeMatches(tournament.id, round, result.matches, tournament.courts);
+    return {
+      matches: played,
+      warnings: result.warnings,
+      nextRound: round,
+      sitOut: [],
+    };
+  }
+
+  // Round robin & Americano: if round_size_mode is 'by_courts', pick who sits
+  // out first (strict bye fairness) and feed only the playing subset to the
+  // engine. This guarantees that players with the fewest prior byes always
+  // get pulled to sit, so bye drift across the tournament stays ≤ 1.
+  let playingPool = active;
+  let sitOutIds: string[] = [];
+
+  if (tournament.round_size_mode === 'by_courts') {
+    const sel = selectPlayingSubset(tournament, active, existingMatches);
+    playingPool = active.filter((p) => sel.playingIds.has(p.id));
+    sitOutIds = sel.sitOutIds;
+  }
+
+  const ctx: PairingContext = {
+    tournament,
+    players: playingPool,
+    existingMatches,
+    round,
+  };
+
+  let result: PairingResult;
   switch (tournament.format) {
     case 'round_robin':
       result = generateRoundRobinRound(ctx);
@@ -85,51 +145,17 @@ export function generateNextRound(
     case 'americano':
       result = generateAmericanoRound(ctx);
       break;
-    case 'king_of_court':
-      // KOTC already respects court count by design.
-      result = generateKingOfCourtRound(ctx);
-      break;
-    case 'single_elim': {
-      if (round === 1) {
-        const built = buildSingleElimBracket(ctx);
-        return {
-          matches: built.matches,
-          warnings: built.warnings,
-          nextRound: 1,
-          sitOut: [],
-        };
-      }
-      return {
-        matches: [],
-        warnings: ['Single elim bracket is fixed at start.'],
-        nextRound: round,
-        sitOut: [],
-      };
-    }
   }
 
-  // Apply round-size mode: 'by_courts' trims to available courts and sits
-  // the least-bye'd players out, respecting fairness across rounds.
-  // KOTC already respects courts; SE uses a fixed bracket.
-  const trimmableFormats = new Set(['round_robin', 'americano']);
-  const shouldTrim =
-    tournament.round_size_mode === 'by_courts' &&
-    trimmableFormats.has(tournament.format);
+  // Safety net: any player the engine couldn't seat (e.g. odd counts in
+  // 'full' mode) still gets a bye record so standings reflect reality.
+  const playingIds = new Set(result.matches.flatMap((s) => [...s.team_a, ...s.team_b]));
+  const extraSitters = active
+    .filter((p) => !playingIds.has(p.id) && !sitOutIds.includes(p.id))
+    .map((p) => p.id);
+  sitOutIds = [...sitOutIds, ...extraSitters];
 
-  let kept: MatchSeed[] = result.matches;
-  let sitOutIds: string[] = [];
-
-  if (shouldTrim && tournament.courts > 0) {
-    const trimmed = trimToCourts(result.matches, active, existingMatches, tournament.courts);
-    kept = trimmed.kept;
-    sitOutIds = trimmed.sitOut;
-  } else {
-    // Even in full mode, players the engine couldn't pair get a bye record.
-    const playingIds = new Set(kept.flatMap((s) => [...s.team_a, ...s.team_b]));
-    sitOutIds = active.filter((p) => !playingIds.has(p.id)).map((p) => p.id);
-  }
-
-  const played = makeMatches(tournament.id, round, kept, tournament.courts);
+  const played = makeMatches(tournament.id, round, result.matches, tournament.courts);
   const byes = makeSitOutByes(tournament.id, round, sitOutIds);
 
   return {

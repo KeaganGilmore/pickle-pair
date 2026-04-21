@@ -128,37 +128,116 @@ export function countPlayerAppearances(matches: Match[]): Map<string, number> {
   return map;
 }
 
-// Trim a list of proposed matches to fit the available courts, picking the
-// ones that give priority to players who have sat out more (bye fairness).
-// Returns kept matches plus the player ids that sit out this round.
-export function trimToCourts(
-  seeds: MatchSeed[],
-  activePlayers: Player[],
+// Select the players who will sit this round BEFORE pairing, using strict
+// fairness: fewest prior byes sit out first, ties broken by most prior
+// appearances. Returns the set of player ids that should play and the ids
+// that sit, given the tournament shape (mode, partner_mode, mixed, courts).
+//
+// The downstream engine then only sees the playing subset, so whoever plays
+// really does play — it can't quietly drop a high-bye player because of
+// partner availability. Drift in per-player bye counts is capped at 1 across
+// the tournament: every round, the players with the fewest byes get pulled
+// out of the playing pool, which equalizes as the rounds progress.
+export type SitterSelection = {
+  playingIds: Set<string>;
+  sitOutIds: string[];
+};
+
+type TournamentShape = {
+  mode: 'singles' | 'doubles';
+  courts: number;
+  mixed: boolean;
+  partner_mode?: 'random' | 'fixed' | 'rotating' | null;
+};
+
+export function selectPlayingSubset(
+  tournament: TournamentShape,
+  active: Player[],
   existing: Match[],
-  maxMatches: number,
-): { kept: MatchSeed[]; sitOut: string[] } {
-  if (seeds.length <= maxMatches) {
-    const playingIds = new Set(seeds.flatMap((s) => [...s.team_a, ...s.team_b]));
-    const sitOut = activePlayers.filter((p) => !playingIds.has(p.id)).map((p) => p.id);
-    return { kept: seeds, sitOut };
-  }
+): SitterSelection {
   const byes = countSitOutByes(existing);
   const appearances = countPlayerAppearances(existing);
-  const score = (s: MatchSeed) => {
-    const ids = [...s.team_a, ...s.team_b];
-    if (ids.length === 0) return -Infinity;
-    // Higher bye count = higher priority to play. Penalize players with many
-    // appearances slightly so a player who's played every round doesn't keep
-    // getting picked if a less-played alternative exists.
-    const avgByes = ids.reduce((acc, id) => acc + (byes.get(id) ?? 0), 0) / ids.length;
-    const avgPlays = ids.reduce((acc, id) => acc + (appearances.get(id) ?? 0), 0) / ids.length;
-    return avgByes * 10 - avgPlays;
+  const score = (p: Player) => {
+    // Higher byes first, then fewer appearances first (secondary).
+    const bye = byes.get(p.id) ?? 0;
+    const plays = appearances.get(p.id) ?? 0;
+    return bye * 1000 - plays;
   };
-  const sorted = seeds
-    .map((s, i) => ({ s, i, score: score(s) }))
-    .sort((a, b) => b.score - a.score || a.i - b.i);
-  const kept = sorted.slice(0, maxMatches).map((x) => x.s);
-  const playingIds = new Set(kept.flatMap((s) => [...s.team_a, ...s.team_b]));
-  const sitOut = activePlayers.filter((p) => !playingIds.has(p.id)).map((p) => p.id);
-  return { kept, sitOut };
+  const cmp = (a: Player, b: Player) => {
+    const diff = score(b) - score(a);
+    if (diff !== 0) return diff;
+    return a.id.localeCompare(b.id); // stable deterministic tiebreak
+  };
+
+  const perMatch = tournament.mode === 'singles' ? 2 : 4;
+  const maxPlaying = Math.max(0, tournament.courts * perMatch);
+
+  // ── Fixed partner doubles: pairs are atomic, pick whole pairs by fairness
+  if (
+    tournament.mode === 'doubles' &&
+    (tournament.partner_mode ?? 'random') === 'fixed'
+  ) {
+    const seen = new Set<string>();
+    const pairs: [Player, Player][] = [];
+    for (const p of active) {
+      if (seen.has(p.id)) continue;
+      const partnerId = p.fixed_partner_id ?? null;
+      if (partnerId) {
+        const partner = active.find((q) => q.id === partnerId);
+        if (partner && !seen.has(partner.id)) {
+          pairs.push([p, partner]);
+          seen.add(p.id);
+          seen.add(partner.id);
+          continue;
+        }
+      }
+      // No partner — this player effectively sits
+      seen.add(p.id);
+    }
+    const pairScore = ([a, b]: [Player, Player]) => (score(a) + score(b)) / 2;
+    pairs.sort((a, b) => pairScore(b) - pairScore(a));
+    const pairsWanted = tournament.courts * 2; // 2 pairs per match
+    const playingPairs = pairs.slice(0, Math.min(pairsWanted, pairs.length));
+    const playingIds = new Set(playingPairs.flatMap(([a, b]) => [a.id, b.id]));
+    const sitOutIds = active.filter((p) => !playingIds.has(p.id)).map((p) => p.id);
+    return { playingIds, sitOutIds };
+  }
+
+  // ── Mixed doubles (random/rotating): equal M and F per match
+  if (tournament.mode === 'doubles' && tournament.mixed) {
+    const males = active.filter((p) => p.gender === 'M').sort(cmp);
+    const females = active.filter((p) => p.gender === 'F').sort(cmp);
+    const others = active.filter((p) => p.gender !== 'M' && p.gender !== 'F');
+    const needPerGender = tournament.courts * 2; // 2 per match of each gender
+    // Each court needs 1M+1F per team × 2 teams = 2M+2F. To keep pairs
+    // balanced we only play as many of each as we have of the other.
+    const n = Math.min(
+      needPerGender,
+      males.length,
+      females.length,
+    );
+    const playingMales = males.slice(0, n);
+    const playingFemales = females.slice(0, n);
+    const playingIds = new Set([
+      ...playingMales.map((p) => p.id),
+      ...playingFemales.map((p) => p.id),
+    ]);
+    const sitOutIds = [
+      ...males.slice(n),
+      ...females.slice(n),
+      ...others,
+    ].map((p) => p.id);
+    return { playingIds, sitOutIds };
+  }
+
+  // ── Everything else: singles, non-mixed random doubles, rotating doubles
+  const sorted = [...active].sort(cmp);
+  let take = Math.min(maxPlaying, active.length);
+  // For doubles, the engine pairs in groups of 4; trim to a multiple of 4.
+  if (tournament.mode === 'doubles') take = take - (take % 4);
+  if (tournament.mode === 'singles') take = take - (take % 2);
+  const playing = sorted.slice(0, take);
+  const playingIds = new Set(playing.map((p) => p.id));
+  const sitOutIds = active.filter((p) => !playingIds.has(p.id)).map((p) => p.id);
+  return { playingIds, sitOutIds };
 }
