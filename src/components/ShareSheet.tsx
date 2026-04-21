@@ -16,7 +16,7 @@ import {
 export function ShareSheet({ tournament }: { tournament: Tournament }) {
   const [open, setOpen] = useState(false);
   const [qr, setQr] = useState<string | null>(null);
-  const base = `${window.location.origin}/picklepair/t`;
+  const base = `${window.location.origin}${import.meta.env.BASE_URL}t`;
   const viewUrl = `${base}/${tournament.token}`;
   const editUrl = `${base}/${tournament.edit_token}`;
 

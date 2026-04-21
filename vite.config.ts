@@ -4,7 +4,7 @@ import { VitePWA } from 'vite-plugin-pwa';
 import path from 'node:path';
 
 export default defineConfig({
-  base: '/picklepair/',
+  base: '/pickle-pair/',
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
@@ -22,8 +22,8 @@ export default defineConfig({
         theme_color: '#0b0b0c',
         background_color: '#0b0b0c',
         display: 'standalone',
-        scope: '/picklepair/',
-        start_url: '/picklepair/',
+        scope: '/pickle-pair/',
+        start_url: '/pickle-pair/',
         icons: [
           { src: 'icons/icon-192.svg', sizes: '192x192', type: 'image/svg+xml', purpose: 'any' },
           { src: 'icons/icon-192.svg', sizes: '512x512', type: 'image/svg+xml', purpose: 'any maskable' },
@@ -31,7 +31,7 @@ export default defineConfig({
       },
       workbox: {
         globPatterns: ['**/*.{js,css,html,svg,png,ico,webp,woff2}'],
-        navigateFallback: '/picklepair/index.html',
+        navigateFallback: '/pickle-pair/index.html',
         runtimeCaching: [
           {
             urlPattern: /^https:\/\/fonts\.(?:gstatic|googleapis)\.com\/.*/i,
