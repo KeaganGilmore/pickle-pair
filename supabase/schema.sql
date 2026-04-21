@@ -21,6 +21,7 @@ create table if not exists public.tournaments (
   format text not null check (format in ('round_robin','single_elim','americano','king_of_court')),
   partner_mode text check (partner_mode in ('random','fixed','rotating')),
   mixed boolean not null default false,
+  round_size_mode text not null default 'full' check (round_size_mode in ('full','by_courts')),
   courts int not null default 2 check (courts > 0),
   points_to_win int not null default 11 check (points_to_win > 0),
   win_by_two boolean not null default true,
@@ -33,6 +34,20 @@ create table if not exists public.tournaments (
 
 create index if not exists idx_tournaments_token on public.tournaments(token);
 create index if not exists idx_tournaments_edit_token on public.tournaments(edit_token);
+
+-- Migration-safe: add columns for existing deployments.
+alter table public.tournaments add column if not exists round_size_mode text not null default 'full';
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint
+    where conname = 'tournaments_round_size_mode_check' and conrelid = 'public.tournaments'::regclass
+  ) then
+    alter table public.tournaments
+      add constraint tournaments_round_size_mode_check
+      check (round_size_mode in ('full','by_courts'));
+  end if;
+end$$;
 
 create table if not exists public.players (
   id text primary key,

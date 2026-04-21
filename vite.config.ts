@@ -17,6 +17,32 @@ export default defineConfig({
     },
   },
   plugins: [react()],
+  build: {
+    target: 'es2020',
+    cssCodeSplit: true,
+    sourcemap: false,
+    rollupOptions: {
+      output: {
+        // Split heavy vendor groups into long-cacheable chunks so the main
+        // bundle stays lean and repeat visits load almost instantly.
+        manualChunks(id) {
+          if (!id.includes('node_modules')) return;
+          if (id.includes('@supabase')) return 'vendor-supabase';
+          if (id.includes('framer-motion')) return 'vendor-motion';
+          if (id.includes('@radix-ui')) return 'vendor-radix';
+          if (id.includes('@tanstack/react-query')) return 'vendor-query';
+          if (id.includes('dexie')) return 'vendor-dexie';
+          if (id.includes('react-router')) return 'vendor-router';
+          if (id.includes('/react/') || id.includes('/react-dom/')) return 'vendor-react';
+          if (id.includes('lucide-react')) return 'vendor-icons';
+          if (id.includes('qrcode')) return 'vendor-qrcode';
+          if (id.includes('zod')) return 'vendor-zod';
+          return 'vendor';
+        },
+      },
+    },
+    chunkSizeWarningLimit: 800,
+  },
   server: {
     port: 5173,
     host: true,

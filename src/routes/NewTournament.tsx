@@ -16,7 +16,7 @@ import {
 } from '@/components/ui/Select';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/Card';
 import { nowIso, longToken, shortToken, uid } from '@/lib/utils';
-import type { Tournament, PartnerMode, TournamentFormat, TournamentMode } from '@/lib/types';
+import type { Tournament, PartnerMode, TournamentFormat, TournamentMode, RoundSizeMode } from '@/lib/types';
 import { upsertTournament } from '@/lib/repo';
 import { audit } from '@/lib/repo';
 
@@ -28,6 +28,7 @@ export function NewTournament() {
   const [partnerMode, setPartnerMode] = useState<PartnerMode>('random');
   const [mixed, setMixed] = useState(false);
   const [courts, setCourts] = useState(2);
+  const [roundSizeMode, setRoundSizeMode] = useState<RoundSizeMode>('full');
   const [pointsToWin, setPointsToWin] = useState(11);
   const [winByTwo, setWinByTwo] = useState(true);
   const [timeCap, setTimeCap] = useState<number | ''>('');
@@ -50,6 +51,7 @@ export function NewTournament() {
         format,
         partner_mode: mode === 'doubles' ? partnerMode : null,
         mixed: mode === 'doubles' ? mixed : false,
+        round_size_mode: roundSizeMode,
         courts,
         points_to_win: pointsToWin,
         win_by_two: winByTwo,
@@ -173,6 +175,23 @@ export function NewTournament() {
             <CardTitle>Rules</CardTitle>
           </CardHeader>
           <CardContent className="grid gap-4">
+            <div className="grid gap-1.5">
+              <Label>Round format</Label>
+              <Select value={roundSizeMode} onValueChange={(v) => setRoundSizeMode(v as RoundSizeMode)}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="full">Everyone plays every round</SelectItem>
+                  <SelectItem value="by_courts">Fill available courts (extras sit out)</SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                {roundSizeMode === 'full'
+                  ? 'Every player gets a match each round — uses as many courts as needed.'
+                  : 'A round is just what fits on your courts. Extras sit out; the engine rotates them so everyone gets fair play time.'}
+              </p>
+            </div>
             <div className="grid grid-cols-2 gap-3">
               <div className="grid gap-1.5">
                 <Label>Courts</Label>

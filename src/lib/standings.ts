@@ -13,10 +13,18 @@ export function computeStandings(players: Player[], matches: Match[]): Standing[
       pointsFor: 0,
       pointsAgainst: 0,
       diff: 0,
+      byes: 0,
       withdrawn: p.withdrawn,
     });
   }
   for (const m of matches) {
+    if (m.status === 'bye' && m.notes === 'sit_out') {
+      for (const pid of m.team_a) {
+        const s = stats.get(pid);
+        if (s) s.byes++;
+      }
+      continue;
+    }
     if (m.status !== 'completed' && m.status !== 'forfeit') continue;
     const aWin = m.score_a > m.score_b;
     for (const pid of m.team_a) {

@@ -4,12 +4,14 @@ import { supabase, supabaseConfigured, ensureAnonymousAuth } from './supabase';
 import type { PendingMutation } from './types';
 import { nowIso, uid } from './utils';
 
+type SyncMode = 'configured' | 'local';
 type SyncStatus = {
   online: boolean;
   pendingCount: number;
   lastSyncAt: string | null;
   syncing: boolean;
   error: string | null;
+  mode: SyncMode;
   configured: boolean;
 };
 
@@ -24,21 +26,22 @@ const state: SyncStatus = {
   lastSyncAt: null,
   syncing: false,
   error: null,
+  mode: supabaseConfigured ? 'configured' : 'local',
   configured: supabaseConfigured,
 };
 
 function notify() {
-  for (const l of listeners) l(state);
+  for (const l of listeners) l({ ...state });
 }
 
 export function subscribeSync(l: Listener) {
   listeners.add(l);
-  l(state);
+  l({ ...state });
   return () => listeners.delete(l);
 }
 
 export function getSyncState() {
-  return state;
+  return { ...state };
 }
 
 async function refreshPendingCount() {
@@ -53,6 +56,49 @@ const TABLE_MAP: Record<PendingMutation['entity'], string> = {
   audit: 'audit_log',
 };
 
+// Coalesce multiple mutations that target the same row into just the latest.
+// Cuts N rapid score taps down to one network round-trip.
+async function dedupeQueue() {
+  const all = await db.pending.orderBy('created_at').toArray();
+  if (all.length === 0) return;
+  const latest = new Map<string, PendingMutation>();
+  const toDelete: string[] = [];
+  for (const m of all) {
+    const rowId = (m.payload as { id?: string } | null)?.id ?? m.id;
+    const key = `${m.entity}:${m.op}:${rowId}`;
+    const prior = latest.get(key);
+    if (!prior) {
+      latest.set(key, m);
+      continue;
+    }
+    // Same row touched twice — keep the newer one, drop the older.
+    if (prior.created_at <= m.created_at) {
+      toDelete.push(prior.id);
+      latest.set(key, m);
+    } else {
+      toDelete.push(m.id);
+    }
+  }
+  if (toDelete.length) await db.pending.bulkDelete(toDelete);
+}
+
+function extractStatus(err: unknown): number | undefined {
+  const e = err as { status?: number; code?: string };
+  if (typeof e?.status === 'number') return e.status;
+  if (typeof e?.code === 'string') {
+    const n = Number(e.code);
+    if (!Number.isNaN(n)) return n;
+  }
+  return undefined;
+}
+
+function isFatal(status: number | undefined): boolean {
+  if (status === undefined) return false;
+  // 401/403 = auth/policy; 400 = bad payload; 404 = table missing/wrong URL;
+  // 409 = conflict we can't repair. Don't spin on any of these.
+  return status === 400 || status === 401 || status === 403 || status === 404 || status === 409;
+}
+
 async function processOne(m: PendingMutation): Promise<void> {
   if (!supabase) throw new Error('supabase not configured');
   const table = TABLE_MAP[m.entity];
@@ -63,28 +109,59 @@ async function processOne(m: PendingMutation): Promise<void> {
     if (error) throw error;
     return;
   }
-  // upsert
   const { error } = await supabase.from(table).upsert(m.payload, { onConflict: 'id' });
   if (error) throw error;
 }
 
-let running = false;
+let syncRunning = false;
+let nextSyncTimer: ReturnType<typeof setTimeout> | null = null;
+
+function scheduleRetry(delayMs: number) {
+  if (nextSyncTimer) clearTimeout(nextSyncTimer);
+  nextSyncTimer = setTimeout(() => {
+    nextSyncTimer = null;
+    if (navigator.onLine) void runSync();
+  }, delayMs);
+}
+
 export async function runSync(force = false) {
-  if (!supabase) return;
-  if (running && !force) return;
-  running = true;
+  if (!supabase) {
+    state.mode = 'local';
+    notify();
+    return;
+  }
+  if (syncRunning && !force) return;
+  syncRunning = true;
   state.syncing = true;
   state.error = null;
   notify();
+
   try {
     if (!navigator.onLine) {
-      running = false;
       state.syncing = false;
+      syncRunning = false;
       notify();
       return;
     }
-    await ensureAnonymousAuth();
-    // Drain queue
+
+    // Best-effort auth. If it fails we degrade to local-only but don't retry
+    // forever — the user will see "Local only" in the indicator instead.
+    try {
+      await ensureAnonymousAuth();
+    } catch (err) {
+      state.error = 'Anonymous auth disabled on Supabase — enable it to sync.';
+      state.mode = 'local';
+      console.warn('supabase auth', err);
+      state.syncing = false;
+      syncRunning = false;
+      notify();
+      return;
+    }
+
+    await dedupeQueue();
+    await refreshPendingCount();
+
+    let hadFatal = false;
     for (;;) {
       const batch = await db.pending.orderBy('created_at').limit(25).toArray();
       if (batch.length === 0) break;
@@ -93,26 +170,42 @@ export async function runSync(force = false) {
           await processOne(m);
           await db.pending.delete(m.id);
         } catch (err) {
-          const msg = (err as Error).message || 'sync error';
+          const status = extractStatus(err);
+          const msg = (err as Error)?.message || 'sync error';
+          const fatal = isFatal(status);
           const tries = (m.tries ?? 0) + 1;
-          if (tries > 6) {
-            console.error('giving up on mutation', m, msg);
+          if (fatal) {
+            // Drop; it'll never work as-is and would jam the queue.
+            console.warn('dropping unsyncable mutation', { m, status, msg });
+            await db.pending.delete(m.id);
+            state.error = `Server rejected a change (${status}). Dropped: ${m.entity}`;
+            hadFatal = true;
+          } else if (tries > 6) {
+            console.warn('max retries exceeded; dropping', { m, msg });
             await db.pending.delete(m.id);
           } else {
             await db.pending.update(m.id, { tries, last_error: msg });
           }
-          throw err;
+          // After a failure, break out so we can backoff — but keep trying
+          // subsequent entries if this one was just dropped.
+          if (!fatal) {
+            throw err;
+          }
         }
       }
       await refreshPendingCount();
     }
+
+    if (!hadFatal) state.error = null;
+    state.mode = 'configured';
     state.lastSyncAt = nowIso();
-    state.error = null;
   } catch (err) {
-    state.error = (err as Error).message || 'sync error';
+    state.error = (err as Error)?.message || 'sync error';
+    // Exponential-ish backoff: try again in 5s, then sync cadence takes over.
+    scheduleRetry(5000);
   } finally {
     state.syncing = false;
-    running = false;
+    syncRunning = false;
     await refreshPendingCount();
     notify();
     queryClient?.invalidateQueries();
@@ -135,7 +228,7 @@ export async function enqueue(
     tries: 0,
   });
   await refreshPendingCount();
-  // Fire and forget — don't await
+  // Fire-and-forget; debounced via dedupeQueue on the next run.
   void runSync();
 }
 
@@ -155,18 +248,21 @@ export async function initSync(qc: QueryClient) {
     window.addEventListener('focus', () => void runSync());
   }
   if (supabaseConfigured) {
-    await ensureAnonymousAuth();
     void runSync();
-    // Periodic background sync
+    // Periodic drain — cheap when the queue is empty.
     setInterval(() => {
       if (navigator.onLine) void runSync();
-    }, 15_000);
+    }, 20_000);
   }
 }
 
 export async function pullTournamentFromRemote(token: string) {
   if (!supabase) return null;
-  await ensureAnonymousAuth();
+  try {
+    await ensureAnonymousAuth();
+  } catch {
+    return null;
+  }
   const { data: t, error } = await supabase
     .from('tournaments')
     .select('*')

@@ -1,6 +1,9 @@
 import { useParams } from 'react-router-dom';
 import { motion } from 'framer-motion';
+import { Coffee } from 'lucide-react';
+import type { Match, Player } from '@/lib/types';
 import { Sparkles, RefreshCw, Trash2 } from 'lucide-react';
+import { Badge } from '@/components/ui/Badge';
 import { toast } from 'sonner';
 import { useTournamentData } from '@/hooks/useTournament';
 import { MatchCard } from '@/components/MatchCard';
@@ -152,6 +155,7 @@ export function TournamentMatches() {
             >
               {grouped[round]
                 .slice()
+                .filter((m) => !(m.status === 'bye' && m.notes === 'sit_out'))
                 .sort((a, b) => (a.court ?? 99) - (b.court ?? 99))
                 .map((m) => (
                   <motion.div
@@ -172,9 +176,42 @@ export function TournamentMatches() {
                   </motion.div>
                 ))}
             </motion.div>
+            <SitOutRow
+              round={round}
+              matches={grouped[round]}
+              playersById={playersById}
+            />
           </section>
         ))}
       </div>
+    </div>
+  );
+}
+
+function SitOutRow({
+  round: _round,
+  matches,
+  playersById,
+}: {
+  round: number;
+  matches: Match[];
+  playersById: Map<string, Player>;
+}) {
+  const byes = matches.filter((m) => m.status === 'bye' && m.notes === 'sit_out');
+  if (byes.length === 0) return null;
+  return (
+    <div className="mt-3 flex flex-wrap items-center gap-2 rounded-xl border border-dashed border-border bg-muted/20 px-3 py-2 text-sm text-muted-foreground">
+      <Coffee className="h-3.5 w-3.5" />
+      <span className="font-medium">Sitting out:</span>
+      {byes.map((m) => {
+        const id = m.team_a[0];
+        const p = id ? playersById.get(id) : undefined;
+        return (
+          <Badge key={m.id} variant="outline">
+            {p?.name ?? '?'}
+          </Badge>
+        );
+      })}
     </div>
   );
 }

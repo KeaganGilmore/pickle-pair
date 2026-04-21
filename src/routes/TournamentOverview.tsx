@@ -17,8 +17,15 @@ export function TournamentOverview() {
   const { tournament, players, matches, playersById, isEditor } = useTournamentData(token);
   if (!tournament) return null;
 
-  const upcoming = matches.filter((m) => m.round === tournament.current_round && m.status !== 'completed' && m.status !== 'bye');
-  const currentRoundMatches = matches.filter((m) => m.round === tournament.current_round);
+  const upcoming = matches.filter(
+    (m) =>
+      m.round === tournament.current_round &&
+      m.status !== 'completed' &&
+      m.status !== 'bye',
+  );
+  const currentRoundMatches = matches.filter(
+    (m) => m.round === tournament.current_round && !(m.status === 'bye' && m.notes === 'sit_out'),
+  );
   const canStart = tournament.status === 'setup';
 
   const startOrNext = async () => {
@@ -27,7 +34,7 @@ export function TournamentOverview() {
       toast.error(v.errors[0]);
       return;
     }
-    const { matches: generated, warnings, nextRound } = generateNextRound(tournament, players, matches);
+    const { matches: generated, warnings, nextRound, sitOut } = generateNextRound(tournament, players, matches);
     if (generated.length === 0 && warnings.length > 0) {
       toast.error(warnings[0]);
       return;
@@ -43,8 +50,13 @@ export function TournamentOverview() {
     await audit(tournament.id, 'round_generated', undefined, { round: nextRound, count: generated.length });
     for (const w of warnings) toast.warning(w);
     toast.success(
-      tournament.current_round === 0 ? `Tournament started — round ${nextRound} ready.` : `Round ${nextRound} generated.`,
+      tournament.current_round === 0
+        ? `Tournament started — round ${nextRound} ready.`
+        : `Round ${nextRound} generated.`,
     );
+    if (sitOut.length > 0) {
+      toast(`${sitOut.length} player${sitOut.length === 1 ? '' : 's'} sitting out this round.`);
+    }
   };
 
   const togglePause = async () => {

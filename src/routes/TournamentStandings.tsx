@@ -15,7 +15,7 @@ export function TournamentStandings() {
 
   const exportCsv = () => {
     const rows = [
-      ['Rank', 'Player', 'MP', 'W', 'L', 'PF', 'PA', 'Diff'],
+      ['Rank', 'Player', 'MP', 'W', 'L', 'PF', 'PA', 'Diff', 'Byes'],
       ...standings.map((s, i) => [
         (i + 1).toString(),
         s.name,
@@ -25,6 +25,7 @@ export function TournamentStandings() {
         s.pointsFor.toString(),
         s.pointsAgainst.toString(),
         s.diff.toString(),
+        s.byes.toString(),
       ]),
     ];
     const csv = rows.map((r) => r.map((c) => (c.includes(',') ? `"${c}"` : c)).join(',')).join('\n');
@@ -96,6 +97,7 @@ export function TournamentStandings() {
                   <th className="p-3 text-right tnum">PF</th>
                   <th className="p-3 text-right tnum">PA</th>
                   <th className="p-3 text-right tnum">Diff</th>
+                  <th className="p-3 text-right tnum">Byes</th>
                 </tr>
               </thead>
               <tbody>
@@ -117,6 +119,7 @@ export function TournamentStandings() {
                     <td className="p-3 text-right tnum font-semibold">
                       {s.diff >= 0 ? '+' : ''}{s.diff}
                     </td>
+                    <td className="p-3 text-right tnum text-muted-foreground">{s.byes}</td>
                   </tr>
                 ))}
               </tbody>

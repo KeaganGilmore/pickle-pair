@@ -17,6 +17,9 @@ export type TournamentMode = z.infer<typeof TournamentModeSchema>;
 export const PartnerModeSchema = z.enum(['random', 'fixed', 'rotating']);
 export type PartnerMode = z.infer<typeof PartnerModeSchema>;
 
+export const RoundSizeModeSchema = z.enum(['full', 'by_courts']);
+export type RoundSizeMode = z.infer<typeof RoundSizeModeSchema>;
+
 export const MatchStatusSchema = z.enum([
   'scheduled',
   'in_progress',
@@ -60,6 +63,7 @@ export const TournamentSchema = z.object({
   format: TournamentFormatSchema,
   partner_mode: PartnerModeSchema.nullable().optional(),
   mixed: z.boolean().default(false),
+  round_size_mode: RoundSizeModeSchema.default('full'),
   courts: z.number().int().min(1).max(32).default(2),
   points_to_win: z.number().int().min(1).max(99).default(11),
   win_by_two: z.boolean().default(true),
@@ -144,6 +148,7 @@ export type Standing = {
   pointsFor: number;
   pointsAgainst: number;
   diff: number;
+  byes: number;
   withdrawn: boolean;
 };
 

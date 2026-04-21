@@ -13,14 +13,14 @@ export function SyncIndicator({ compact = false }: { compact?: boolean }) {
     };
   }, []);
 
-  if (!s.configured) {
+  if (!s.configured || s.mode === 'local') {
     return (
       <div
         className={cn(
           'inline-flex items-center gap-1.5 text-xs font-medium text-amber-500/90',
           compact && 'text-[10px]',
         )}
-        title="Supabase not configured — running in offline-only mode."
+        title={s.error ?? 'Supabase not configured — running in offline-only mode.'}
       >
         <AlertTriangle className="h-3.5 w-3.5" />
         Local only

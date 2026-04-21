@@ -7,6 +7,14 @@ import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Label } from '@/components/ui/Label';
 import { Switch } from '@/components/ui/Switch';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/Select';
+import type { RoundSizeMode } from '@/lib/types';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/Card';
 import { listAudit, upsertTournament } from '@/lib/repo';
 import { db } from '@/lib/db';
@@ -33,6 +41,9 @@ export function TournamentSettings() {
   const [pointsToWin, setPointsToWin] = useState(tournament?.points_to_win ?? 11);
   const [winByTwo, setWinByTwo] = useState(tournament?.win_by_two ?? true);
   const [mixed, setMixed] = useState(tournament?.mixed ?? false);
+  const [roundSizeMode, setRoundSizeMode] = useState<RoundSizeMode>(
+    tournament?.round_size_mode ?? 'full',
+  );
 
   const audit = useQuery({
     queryKey: ['audit', tournament?.id],
@@ -51,6 +62,7 @@ export function TournamentSettings() {
       points_to_win: pointsToWin,
       win_by_two: winByTwo,
       mixed,
+      round_size_mode: roundSizeMode,
       updated_at: nowIso(),
     });
     toast.success('Settings saved.');
@@ -104,6 +116,22 @@ export function TournamentSettings() {
                 disabled={!isEditor}
               />
             </div>
+          </div>
+          <div className="grid gap-1.5">
+            <Label>Round format</Label>
+            <Select
+              value={roundSizeMode}
+              onValueChange={(v) => setRoundSizeMode(v as RoundSizeMode)}
+              disabled={!isEditor}
+            >
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="full">Everyone plays every round</SelectItem>
+                <SelectItem value="by_courts">Fill available courts (extras sit out)</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
           <div className="flex items-center justify-between rounded-xl border border-border px-4 py-3">
             <Label>Win by 2</Label>

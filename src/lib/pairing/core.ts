@@ -104,3 +104,61 @@ export function previousMatchups(matches: Match[]): Set<string> {
   }
   return set;
 }
+
+// Count prior sit-out byes per player. Distinguished from bracket byes by
+// the notes='sit_out' marker that the round-size trimmer writes.
+export function countSitOutByes(matches: Match[]): Map<string, number> {
+  const map = new Map<string, number>();
+  for (const m of matches) {
+    if (m.status !== 'bye' || m.notes !== 'sit_out') continue;
+    for (const id of m.team_a) map.set(id, (map.get(id) ?? 0) + 1);
+  }
+  return map;
+}
+
+// Count total matches a player participated in (including byes).
+export function countPlayerAppearances(matches: Match[]): Map<string, number> {
+  const map = new Map<string, number>();
+  for (const m of matches) {
+    if (m.status === 'void') continue;
+    for (const id of [...m.team_a, ...m.team_b]) {
+      map.set(id, (map.get(id) ?? 0) + 1);
+    }
+  }
+  return map;
+}
+
+// Trim a list of proposed matches to fit the available courts, picking the
+// ones that give priority to players who have sat out more (bye fairness).
+// Returns kept matches plus the player ids that sit out this round.
+export function trimToCourts(
+  seeds: MatchSeed[],
+  activePlayers: Player[],
+  existing: Match[],
+  maxMatches: number,
+): { kept: MatchSeed[]; sitOut: string[] } {
+  if (seeds.length <= maxMatches) {
+    const playingIds = new Set(seeds.flatMap((s) => [...s.team_a, ...s.team_b]));
+    const sitOut = activePlayers.filter((p) => !playingIds.has(p.id)).map((p) => p.id);
+    return { kept: seeds, sitOut };
+  }
+  const byes = countSitOutByes(existing);
+  const appearances = countPlayerAppearances(existing);
+  const score = (s: MatchSeed) => {
+    const ids = [...s.team_a, ...s.team_b];
+    if (ids.length === 0) return -Infinity;
+    // Higher bye count = higher priority to play. Penalize players with many
+    // appearances slightly so a player who's played every round doesn't keep
+    // getting picked if a less-played alternative exists.
+    const avgByes = ids.reduce((acc, id) => acc + (byes.get(id) ?? 0), 0) / ids.length;
+    const avgPlays = ids.reduce((acc, id) => acc + (appearances.get(id) ?? 0), 0) / ids.length;
+    return avgByes * 10 - avgPlays;
+  };
+  const sorted = seeds
+    .map((s, i) => ({ s, i, score: score(s) }))
+    .sort((a, b) => b.score - a.score || a.i - b.i);
+  const kept = sorted.slice(0, maxMatches).map((x) => x.s);
+  const playingIds = new Set(kept.flatMap((s) => [...s.team_a, ...s.team_b]));
+  const sitOut = activePlayers.filter((p) => !playingIds.has(p.id)).map((p) => p.id);
+  return { kept, sitOut };
+}

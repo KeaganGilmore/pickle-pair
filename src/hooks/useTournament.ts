@@ -5,6 +5,8 @@ import { pullTournamentFromRemote } from '@/lib/sync';
 import type { Tournament, Player, Match } from '@/lib/types';
 import { useMemo } from 'react';
 
+const REMOTE_REFETCH_MS = 20_000;
+
 export function useTournamentByToken(token: string | undefined) {
   const qc = useQueryClient();
   const local = useLiveQuery(async () => {
@@ -23,16 +25,25 @@ export function useTournamentByToken(token: string | undefined) {
       return pullTournamentFromRemote(token);
     },
     enabled: !!token,
-    refetchInterval: 10_000,
+    // Only poll the server when the tab is in the foreground and we don't
+    // have a local copy yet, or rarely otherwise. Dexie live query already
+    // reacts to local changes instantly.
+    refetchInterval: (q) => (q.state.data ? REMOTE_REFETCH_MS : 4_000),
     refetchOnWindowFocus: true,
+    staleTime: REMOTE_REFETCH_MS,
   });
 
-  return {
-    tournament: (local ?? remote.data) as Tournament | null,
-    loading: local === undefined && remote.isPending,
-    isEditor: local ? local.edit_token === token : false,
-    refetch: () => qc.invalidateQueries({ queryKey: ['tournament', token] }),
-  };
+  const tournament = (local ?? remote.data) as Tournament | null;
+
+  return useMemo(
+    () => ({
+      tournament,
+      loading: local === undefined && remote.isPending,
+      isEditor: !!tournament && tournament.edit_token === token,
+      refetch: () => qc.invalidateQueries({ queryKey: ['tournament', token] }),
+    }),
+    [tournament, local, remote.isPending, token, qc],
+  );
 }
 
 export function usePlayers(tournamentId: string | undefined): Player[] {
@@ -78,6 +89,12 @@ export function useTournamentData(token: string | undefined) {
   const { tournament, loading, isEditor, refetch } = useTournamentByToken(token);
   const players = usePlayers(tournament?.id);
   const matches = useMatches(tournament?.id);
+  // Derived maps are re-computed only when their upstream arrays change by
+  // reference; Dexie's liveQuery preserves reference identity when nothing
+  // has actually changed, so downstream components avoid re-render churn.
   const playersById = useMemo(() => new Map(players.map((p) => [p.id, p])), [players]);
-  return { tournament, players, matches, playersById, loading, isEditor, refetch };
+  return useMemo(
+    () => ({ tournament, players, matches, playersById, loading, isEditor, refetch }),
+    [tournament, players, matches, playersById, loading, isEditor, refetch],
+  );
 }
