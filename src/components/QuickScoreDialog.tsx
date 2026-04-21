@@ -1,4 +1,4 @@
-import { useEffect, useState, type MouseEvent } from 'react';
+import { useEffect, useState, type MouseEvent, type ReactElement, cloneElement } from 'react';
 import { toast } from 'sonner';
 import { Pencil, Check } from 'lucide-react';
 import {
@@ -8,7 +8,6 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
   DialogClose,
 } from './ui/Dialog';
 import { Button } from './ui/Button';
@@ -26,7 +25,10 @@ type Props = {
   players: Map<string, Player>;
   tournament: Tournament;
   allMatches: Match[];
-  trigger?: React.ReactNode;
+  // Optional custom trigger element. If omitted, a pencil-icon button is rendered.
+  // Whatever is passed gets an onClick attached that opens the dialog (and
+  // swallows the click so parent <Link>s don't navigate).
+  trigger?: ReactElement;
 };
 
 export function QuickScoreDialog({ match, players, tournament, allMatches, trigger }: Props) {
@@ -45,6 +47,12 @@ export function QuickScoreDialog({ match, players, tournament, allMatches, trigg
   const bLabel = teamDisplayName(match.team_b, players);
   const tied = a === b;
   const editing = match.status === 'completed' || match.status === 'forfeit';
+
+  const openDialog = (e: MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setOpen(true);
+  };
 
   const save = async () => {
     if (tied) {
@@ -77,60 +85,69 @@ export function QuickScoreDialog({ match, players, tournament, allMatches, trigg
     setOpen(false);
   };
 
-  const stop = (e: MouseEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-  };
+  // Clone the user-supplied trigger to inject onClick — works cleanly when
+  // this component lives inside a parent <Link> (we stop the navigation).
+  const triggerEl = trigger ? (
+    cloneElement(trigger, {
+      onClick: openDialog,
+    } as Partial<typeof trigger.props>)
+  ) : (
+    <button
+      type="button"
+      onClick={openDialog}
+      title="Quick score"
+      aria-label="Quick score"
+      className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground pressable"
+    >
+      <Pencil className="h-3.5 w-3.5" />
+    </button>
+  );
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild onClick={stop}>
-        {trigger ?? (
-          <Button variant="ghost" size="icon-sm" title="Quick score">
-            <Pencil className="h-3.5 w-3.5" />
-          </Button>
-        )}
-      </DialogTrigger>
-      <DialogContent onClick={stop}>
-        <DialogHeader>
-          <DialogTitle>{editing ? 'Edit result' : 'Record score'}</DialogTitle>
-          <DialogDescription>
-            Type the final score. No timer, no taps per point.
-            {editing && (
-              <>
-                {' '}
-                <Badge variant="warn" className="ml-1">
-                  Editing a locked match
-                </Badge>
-              </>
-            )}
-          </DialogDescription>
-        </DialogHeader>
+    <>
+      {triggerEl}
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{editing ? 'Edit result' : 'Record score'}</DialogTitle>
+            <DialogDescription>
+              Type the final score. No timer, no taps per point.
+              {editing && (
+                <>
+                  {' '}
+                  <Badge variant="warn" className="ml-1">
+                    Editing a locked match
+                  </Badge>
+                </>
+              )}
+            </DialogDescription>
+          </DialogHeader>
 
-        <div className="grid grid-cols-[1fr_auto_1fr] items-end gap-3">
-          <ScoreInput label={aLabel} value={a} onChange={setA} />
-          <div className="pb-2 text-center font-serif text-2xl text-muted-foreground">:</div>
-          <ScoreInput label={bLabel} value={b} onChange={setB} alignRight />
-        </div>
+          <div className="grid grid-cols-[1fr_auto_1fr] items-end gap-3">
+            <ScoreInput label={aLabel} value={a} onChange={setA} />
+            <div className="pb-2 text-center font-serif text-2xl text-muted-foreground">:</div>
+            <ScoreInput label={bLabel} value={b} onChange={setB} alignRight />
+          </div>
 
-        {tournament.format === 'single_elim' && editing && (
-          <p className="mt-3 text-xs text-amber-500">
-            Heads up — editing a bracket match re-advances the winner. Downstream matches may need
-            review.
-          </p>
-        )}
+          {tournament.format === 'single_elim' && editing && (
+            <p className="mt-3 text-xs text-amber-500">
+              Heads up — editing a bracket match re-advances the winner. Downstream matches may need
+              review.
+            </p>
+          )}
 
-        <DialogFooter>
-          <DialogClose asChild>
-            <Button variant="ghost">Cancel</Button>
-          </DialogClose>
-          <Button variant="accent" onClick={save} disabled={tied}>
-            <Check className="h-4 w-4" />
-            {editing ? 'Save changes' : 'Lock result'}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+          <DialogFooter>
+            <DialogClose asChild>
+              <Button variant="ghost">Cancel</Button>
+            </DialogClose>
+            <Button variant="accent" onClick={save} disabled={tied}>
+              <Check className="h-4 w-4" />
+              {editing ? 'Save changes' : 'Lock result'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }
 
@@ -155,7 +172,7 @@ function ScoreInput({
         max={99}
         value={value}
         onChange={(e) => onChange(Math.max(0, Math.min(99, Number(e.target.value) || 0)))}
-        className={`h-14 text-center font-serif text-3xl tnum ${alignRight ? '' : ''}`}
+        className="h-14 text-center font-serif text-3xl tnum"
       />
     </div>
   );
