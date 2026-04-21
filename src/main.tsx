@@ -7,6 +7,23 @@ import './index.css';
 import { initSync } from './lib/sync';
 import { ThemeProvider } from './lib/theme';
 
+// Unregister any leftover service worker from older deploys. Previous builds
+// registered a SW at /picklepair/ scope which sticks in the browser and
+// intercepts requests with cached 404s, white-screening the page. Once every
+// visitor has been through this cleanup we can safely bring the PWA back.
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.getRegistrations().then((regs) => {
+    let cleaned = false;
+    for (const r of regs) {
+      r.unregister();
+      cleaned = true;
+    }
+    if (cleaned && 'caches' in window) {
+      caches.keys().then((keys) => keys.forEach((k) => caches.delete(k)));
+    }
+  }).catch(() => {});
+}
+
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
