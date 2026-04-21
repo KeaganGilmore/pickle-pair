@@ -35,13 +35,32 @@ export const supabase: SupabaseClient | null = supabaseConfigured
     })
   : null;
 
+let anonAuthDisabled = false;
+
+export function isAnonAuthDisabled() {
+  return anonAuthDisabled;
+}
+
 export async function ensureAnonymousAuth() {
   if (!supabase) return null;
+  if (anonAuthDisabled) return null;
   const { data } = await supabase.auth.getSession();
   if (data.session) return data.session;
-  // Fall back to anonymous sign-in — required for RLS to provide a stable uid
   const { data: anonData, error } = await supabase.auth.signInAnonymously();
   if (error) {
+    // If the server says anon auth is disabled we remember it and stop
+    // retrying for this session — otherwise every enqueue floods the
+    // /auth/v1/signup endpoint with 422s.
+    const msg = (error.message ?? '').toLowerCase();
+    const status = (error as { status?: number })?.status;
+    if (
+      msg.includes('disabled') ||
+      status === 422 ||
+      status === 403 ||
+      status === 404
+    ) {
+      anonAuthDisabled = true;
+    }
     console.warn('anonymous auth failed', error);
     return null;
   }

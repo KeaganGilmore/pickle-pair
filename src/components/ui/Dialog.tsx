@@ -4,6 +4,7 @@ import {
   type ComponentPropsWithoutRef,
   type ElementRef,
   type HTMLAttributes,
+  type SyntheticEvent,
 } from 'react';
 import { X } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -31,29 +32,44 @@ DialogOverlay.displayName = 'DialogOverlay';
 export const DialogContent = forwardRef<
   ElementRef<typeof DialogPrimitive.Content>,
   ComponentPropsWithoutRef<typeof DialogPrimitive.Content> & { hideClose?: boolean }
->(({ className, children, hideClose, ...props }, ref) => (
-  <DialogPortal>
-    <DialogOverlay />
-    <DialogPrimitive.Content
-      ref={ref}
-      className={cn(
-        'fixed left-1/2 top-1/2 z-50 w-[calc(100%-2rem)] max-w-lg -translate-x-1/2 -translate-y-1/2',
-        'card-elevated p-6',
-        'data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[state=closed]:slide-out-to-left-1/2 data-[state=closed]:slide-out-to-top-[48%] data-[state=open]:slide-in-from-left-1/2 data-[state=open]:slide-in-from-top-[48%]',
-        className,
-      )}
-      {...props}
-    >
-      {children}
-      {!hideClose && (
-        <DialogClose className="absolute right-4 top-4 rounded-lg p-1 text-muted-foreground hover:bg-muted/60 hover:text-foreground">
-          <X className="h-4 w-4" />
-          <span className="sr-only">Close</span>
-        </DialogClose>
-      )}
-    </DialogPrimitive.Content>
-  </DialogPortal>
-));
+>(({ className, children, hideClose, ...props }, ref) => {
+  // Dialog content may render inside a <Link> subtree. Without explicit
+  // propagation stops, clicks/pointers on inputs inside the dialog bubble
+  // up through the React tree and hit the Link's navigation handler,
+  // closing the dialog and navigating away. Swallow pointer events at
+  // the content boundary — Radix already owns focus/escape/outside-click.
+  const swallow = (e: SyntheticEvent) => e.stopPropagation();
+  return (
+    <DialogPortal>
+      <DialogOverlay />
+      <DialogPrimitive.Content
+        ref={ref}
+        className={cn(
+          'fixed left-1/2 top-1/2 z-50 w-[calc(100%-2rem)] max-w-lg -translate-x-1/2 -translate-y-1/2',
+          'card-elevated p-6',
+          'data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[state=closed]:slide-out-to-left-1/2 data-[state=closed]:slide-out-to-top-[48%] data-[state=open]:slide-in-from-left-1/2 data-[state=open]:slide-in-from-top-[48%]',
+          className,
+        )}
+        onClick={swallow}
+        onPointerDown={swallow}
+        onPointerUp={swallow}
+        onMouseDown={swallow}
+        onMouseUp={swallow}
+        onTouchStart={swallow}
+        onTouchEnd={swallow}
+        {...props}
+      >
+        {children}
+        {!hideClose && (
+          <DialogClose className="absolute right-4 top-4 rounded-lg p-1 text-muted-foreground hover:bg-muted/60 hover:text-foreground">
+            <X className="h-4 w-4" />
+            <span className="sr-only">Close</span>
+          </DialogClose>
+        )}
+      </DialogPrimitive.Content>
+    </DialogPortal>
+  );
+});
 DialogContent.displayName = 'DialogContent';
 
 export const DialogHeader = ({ className, ...props }: HTMLAttributes<HTMLDivElement>) => (

@@ -1,6 +1,6 @@
 import type { QueryClient } from '@tanstack/react-query';
 import { db } from './db';
-import { supabase, supabaseConfigured, ensureAnonymousAuth } from './supabase';
+import { supabase, supabaseConfigured, ensureAnonymousAuth, isAnonAuthDisabled } from './supabase';
 import type { PendingMutation } from './types';
 import { nowIso, uid } from './utils';
 
@@ -144,12 +144,28 @@ export async function runSync(force = false) {
       return;
     }
 
-    // Best-effort auth. If it fails we degrade to local-only but don't retry
-    // forever — the user will see "Local only" in the indicator instead.
+    // Best-effort auth. Once we've learned anon auth is disabled on the
+    // server, skip even trying — otherwise every enqueue floods auth/v1/signup.
+    if (isAnonAuthDisabled()) {
+      state.mode = 'local';
+      state.error = 'Anonymous sign-ins are disabled on this Supabase project.';
+      state.syncing = false;
+      syncRunning = false;
+      notify();
+      return;
+    }
     try {
-      await ensureAnonymousAuth();
+      const session = await ensureAnonymousAuth();
+      if (!session && isAnonAuthDisabled()) {
+        state.mode = 'local';
+        state.error = 'Anonymous sign-ins are disabled on this Supabase project.';
+        state.syncing = false;
+        syncRunning = false;
+        notify();
+        return;
+      }
     } catch (err) {
-      state.error = 'Anonymous auth disabled on Supabase — enable it to sync.';
+      state.error = 'Auth error — running local-only.';
       state.mode = 'local';
       console.warn('supabase auth', err);
       state.syncing = false;
@@ -258,11 +274,13 @@ export async function initSync(qc: QueryClient) {
 
 export async function pullTournamentFromRemote(token: string) {
   if (!supabase) return null;
+  if (isAnonAuthDisabled()) return null;
   try {
     await ensureAnonymousAuth();
   } catch {
     return null;
   }
+  if (isAnonAuthDisabled()) return null;
   const { data: t, error } = await supabase
     .from('tournaments')
     .select('*')

@@ -4,6 +4,7 @@ import {
   type ComponentPropsWithoutRef,
   type ElementRef,
   type HTMLAttributes,
+  type SyntheticEvent,
 } from 'react';
 import { X } from 'lucide-react';
 import { cva, type VariantProps } from 'class-variance-authority';
@@ -33,12 +34,21 @@ const sheetVariants = cva(
 export const SheetContent = forwardRef<
   ElementRef<typeof DialogPrimitive.Content>,
   ComponentPropsWithoutRef<typeof DialogPrimitive.Content> & VariantProps<typeof sheetVariants>
->(({ side, className, children, ...props }, ref) => (
+>(({ side, className, children, ...props }, ref) => {
+  const swallow = (e: SyntheticEvent) => e.stopPropagation();
+  return (
   <DialogPrimitive.Portal>
     <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0" />
     <DialogPrimitive.Content
       ref={ref}
       className={cn(sheetVariants({ side }), className)}
+      onClick={swallow}
+      onPointerDown={swallow}
+      onPointerUp={swallow}
+      onMouseDown={swallow}
+      onMouseUp={swallow}
+      onTouchStart={swallow}
+      onTouchEnd={swallow}
       {...props}
     >
       {side === 'bottom' && (
@@ -51,7 +61,8 @@ export const SheetContent = forwardRef<
       </DialogPrimitive.Close>
     </DialogPrimitive.Content>
   </DialogPrimitive.Portal>
-));
+  );
+});
 SheetContent.displayName = 'SheetContent';
 
 export const SheetHeader = ({ className, ...props }: HTMLAttributes<HTMLDivElement>) => (
