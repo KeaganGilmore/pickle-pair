@@ -13,7 +13,7 @@ Courtside pickleball tournament pairing. Built for phones and tablets on shaky w
 
 ```bash
 npm install
-cp .env.example .env.local    # then fill in your Supabase URL + anon key
+cp .env.example .env.local    # then fill in your Supabase URL + publishable key
 npm run dev
 ```
 
@@ -32,8 +32,8 @@ npm run preview
 1. Create a repo on GitHub and push this project.
 2. In the repo **Settings → Pages → Build and deployment → Source**, choose **GitHub Actions**.
 3. Add two repo secrets under **Settings → Secrets and variables → Actions**:
-   - `VITE_SUPABASE_URL`
-   - `VITE_SUPABASE_ANON_KEY`
+   - `SUPABASE_URL`
+   - `SUPABASE_PUBLISHABLE_KEY`
 4. Push to `main`. The workflow in `.github/workflows/deploy.yml` builds the app
    and publishes it. The site will live at `https://<user>.github.io/picklepair/`.
 
@@ -47,7 +47,7 @@ works on direct-deep-link loads.
 2. In the SQL editor, paste and run [`supabase/schema.sql`](supabase/schema.sql).
 3. Enable **anonymous sign-ins** under **Authentication → Providers** (the client
    uses an anonymous session to get a stable uid for RLS).
-4. Grab your project URL and anon key from **Settings → API** and drop them into
+4. Grab your project URL and publishable key from **Settings → API** and drop them into
    `.env.local` (and into the two GitHub Actions secrets above).
 
 ### Authorization model
