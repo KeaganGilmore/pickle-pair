@@ -1,7 +1,10 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 
-const rawUrl = import.meta.env.VITE_SUPABASE_URL as string | undefined;
-const anon = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
+const rawUrl = (import.meta.env.VITE_SUPABASE_URL ??
+  import.meta.env.SUPABASE_URL) as string | undefined;
+const publishableKey = (import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY ??
+  import.meta.env.SUPABASE_PUBLISHABLE_KEY ??
+  import.meta.env.VITE_SUPABASE_ANON_KEY) as string | undefined;
 
 // Normalize: the SDK needs the project origin only (e.g. https://abc.supabase.co).
 // If the secret is set to https://abc.supabase.co/rest/v1 or .../auth/v1 the SDK
@@ -17,10 +20,10 @@ function normalizeSupabaseUrl(raw: string | undefined): string | undefined {
 
 const url = normalizeSupabaseUrl(rawUrl);
 
-export const supabaseConfigured = Boolean(url && anon);
+export const supabaseConfigured = Boolean(url && publishableKey);
 
 export const supabase: SupabaseClient | null = supabaseConfigured
-  ? createClient(url!, anon!, {
+  ? createClient(url!, publishableKey!, {
       auth: {
         persistSession: true,
         autoRefreshToken: true,

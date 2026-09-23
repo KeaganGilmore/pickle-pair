@@ -11,6 +11,7 @@ import path from 'node:path';
 
 export default defineConfig({
   base: '/pickle-pair/',
+  envPrefix: ['VITE_', 'SUPABASE_'],
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
